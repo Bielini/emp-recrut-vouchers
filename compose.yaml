@@ -12,3 +12,19 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  app:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/vouchers
+      DB_USERNAME: vouchers
+      DB_PASSWORD: vouchers
+      # Inside Docker every client address is private, so a real IP lookup cannot work locally.
+      # Production uses the default provider (IP_API); see README.
+      GEO_PROVIDER: FIXED
+      GEO_FIXED_COUNTRY: PL
+    ports:
+      - "8080:8080"

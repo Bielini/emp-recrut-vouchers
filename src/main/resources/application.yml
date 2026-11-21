@@ -17,6 +17,11 @@ spring:
   threads:
     virtual:
       enabled: true
+  docker:
+    compose:
+      start:
+        # "./mvnw spring-boot:run" starts only the database; the app service is for "docker compose up".
+        arguments: postgres
   mvc:
     problemdetails:
       enabled: true
@@ -29,3 +34,7 @@ management:
     web:
       exposure:
         include: health,info
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
