@@ -17,4 +17,10 @@ public interface CouponRepository {
     Coupon create(CouponCode code, int maxUses, CountryCode country, Instant createdAt);
 
     Optional<Coupon> findByCode(CouponCode code);
+
+    /**
+     * Atomically registers one use of the coupon by the given user (BR-2, BR-4).
+     * Safe under concurrent calls from many threads and many application instances.
+     */
+    RedemptionOutcome redeem(long couponId, String userId, Instant redeemedAt);
 }

@@ -5,6 +5,7 @@ import com.bielu.vouchers.coupon.domain.CountryCode;
 import com.bielu.vouchers.coupon.domain.Coupon;
 import com.bielu.vouchers.coupon.domain.CouponCode;
 import com.bielu.vouchers.coupon.domain.CouponRepository;
+import com.bielu.vouchers.coupon.domain.RedemptionOutcome;
 import com.bielu.vouchers.coupon.domain.exception.CouponAlreadyExistsException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -90,5 +91,51 @@ class JpaCouponRepositoryIT {
                         INSERT INTO coupon (code, max_uses, country_code, created_at)
                         VALUES ('wiosna', 1, 'PL', now())""").update())
                 .isInstanceOf(DataIntegrityViolationException.class);
+    }
+    @Test
+    void redeemsAndIncrementsUsage() {
+        Coupon coupon = repository.create(CouponCode.of("WIOSNA"), 10, PL, CREATED_AT);
+
+        assertThat(repository.redeem(coupon.id(), "user-1", CREATED_AT)).isEqualTo(RedemptionOutcome.REDEEMED);
+        assertThat(currentUses(coupon)).isEqualTo(1);
+        assertThat(redemptionRows(coupon)).isEqualTo(1);
+    }
+
+    @Test
+    void returnsAlreadyRedeemedForSameUser() {
+        Coupon coupon = repository.create(CouponCode.of("WIOSNA"), 10, PL, CREATED_AT);
+        repository.redeem(coupon.id(), "user-1", CREATED_AT);
+
+        assertThat(repository.redeem(coupon.id(), "user-1", CREATED_AT)).isEqualTo(RedemptionOutcome.ALREADY_REDEEMED);
+        assertThat(currentUses(coupon)).isEqualTo(1);
+        assertThat(redemptionRows(coupon)).isEqualTo(1);
+    }
+
+    @Test
+    void returnsExhaustedAndLeavesNoRedemptionRow() {
+        Coupon coupon = repository.create(CouponCode.of("WIOSNA"), 1, PL, CREATED_AT);
+        repository.redeem(coupon.id(), "user-a", CREATED_AT);
+
+        assertThat(repository.redeem(coupon.id(), "user-b", CREATED_AT)).isEqualTo(RedemptionOutcome.EXHAUSTED);
+        assertThat(currentUses(coupon)).isEqualTo(1);
+        // The redemption row inserted before the failed UPDATE must be rolled back.
+        assertThat(redemptionRows(coupon)).isEqualTo(1);
+    }
+
+    @Test
+    void alreadyRedeemedTakesPrecedenceOverExhausted() {
+        Coupon coupon = repository.create(CouponCode.of("WIOSNA"), 1, PL, CREATED_AT);
+        repository.redeem(coupon.id(), "user-a", CREATED_AT);
+
+        assertThat(repository.redeem(coupon.id(), "user-a", CREATED_AT)).isEqualTo(RedemptionOutcome.ALREADY_REDEEMED);
+    }
+
+    private int currentUses(Coupon coupon) {
+        return jdbc.sql("SELECT current_uses FROM coupon WHERE id = ?").param(coupon.id()).query(Integer.class).single();
+    }
+
+    private int redemptionRows(Coupon coupon) {
+        return jdbc.sql("SELECT count(*) FROM coupon_redemption WHERE coupon_id = ?").param(coupon.id())
+                .query(Integer.class).single();
     }
 }
