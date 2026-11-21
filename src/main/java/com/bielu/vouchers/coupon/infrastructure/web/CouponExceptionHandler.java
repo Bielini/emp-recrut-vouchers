@@ -1,8 +1,12 @@
 package com.bielu.vouchers.coupon.infrastructure.web;
 
+import com.bielu.vouchers.coupon.domain.exception.CountryNotAllowedException;
 import com.bielu.vouchers.coupon.domain.exception.CouponAlreadyExistsException;
+import com.bielu.vouchers.coupon.domain.exception.CouponAlreadyRedeemedException;
 import com.bielu.vouchers.coupon.domain.exception.CouponDomainException;
+import com.bielu.vouchers.coupon.domain.exception.CouponExhaustedException;
 import com.bielu.vouchers.coupon.domain.exception.CouponNotFoundException;
+import com.bielu.vouchers.coupon.domain.exception.GeolocationUnavailableException;
 import com.bielu.vouchers.coupon.domain.exception.InvalidCountryCodeException;
 import com.bielu.vouchers.coupon.domain.exception.InvalidCouponCodeException;
 import org.slf4j.Logger;
@@ -29,20 +33,34 @@ class CouponExceptionHandler extends ResponseEntityExceptionHandler {
 
     static final String ERROR_CODE = "errorCode";
     static final String VALIDATION_FAILED = "VALIDATION_FAILED";
+    /** Seconds a client should wait before retrying when geolocation is down. */
+    static final String RETRY_AFTER_SECONDS = "5";
 
     record FieldViolation(String field, String message) {
     }
 
     @ExceptionHandler(CouponDomainException.class)
-    ProblemDetail handleDomain(CouponDomainException e) {
+    ResponseEntity<ProblemDetail> handleDomain(CouponDomainException e) {
         return switch (e) {
             case InvalidCouponCodeException _, InvalidCountryCodeException _ ->
-                    problem(HttpStatus.BAD_REQUEST, VALIDATION_FAILED, e.getMessage());
+                    respond(problem(HttpStatus.BAD_REQUEST, VALIDATION_FAILED, e.getMessage()));
             case CouponNotFoundException _ ->
-                    problem(HttpStatus.NOT_FOUND, "COUPON_NOT_FOUND", e.getMessage());
+                    respond(problem(HttpStatus.NOT_FOUND, "COUPON_NOT_FOUND", e.getMessage()));
             case CouponAlreadyExistsException _ ->
-                    problem(HttpStatus.CONFLICT, "COUPON_ALREADY_EXISTS", e.getMessage());
-            default -> handleUnexpected(e);
+                    respond(problem(HttpStatus.CONFLICT, "COUPON_ALREADY_EXISTS", e.getMessage()));
+            case CountryNotAllowedException _ ->
+                    respond(problem(HttpStatus.FORBIDDEN, "COUNTRY_NOT_ALLOWED", e.getMessage()));
+            case CouponAlreadyRedeemedException _ ->
+                    respond(problem(HttpStatus.CONFLICT, "COUPON_ALREADY_REDEEMED", e.getMessage()));
+            case CouponExhaustedException _ ->
+                    respond(problem(HttpStatus.CONFLICT, "COUPON_EXHAUSTED", e.getMessage()));
+            case GeolocationUnavailableException _ -> {
+                log.warn("Geolocation unavailable, refusing redemption (fail-closed)", e);
+                yield ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                        .header(HttpHeaders.RETRY_AFTER, RETRY_AFTER_SECONDS)
+                        .body(problem(HttpStatus.SERVICE_UNAVAILABLE, "GEOLOCATION_UNAVAILABLE", e.getMessage()));
+            }
+            default -> respond(handleUnexpected(e));
         };
     }
 
@@ -75,6 +93,10 @@ class CouponExceptionHandler extends ResponseEntityExceptionHandler {
             problem.setProperty(ERROR_CODE, VALIDATION_FAILED);
         }
         return super.handleExceptionInternal(ex, body, headers, status, request);
+    }
+
+    private static ResponseEntity<ProblemDetail> respond(ProblemDetail problem) {
+        return ResponseEntity.status(problem.getStatus()).body(problem);
     }
 
     private static ProblemDetail problem(HttpStatus status, String errorCode, String detail) {

@@ -19,7 +19,7 @@ class CachingCountryResolverTest {
 
     @Test
     void cachesSuccessfulLookups() {
-        CountingResolver delegate = new CountingResolver(Optional.of(CountryCode.of("PL")));
+        CountingResolver delegate = CountingResolver.answering(Optional.of(CountryCode.of("PL")));
         CachingCountryResolver resolver = new CachingCountryResolver(delegate, Duration.ofHours(1), 100);
 
         assertThat(resolver.resolve(ADDRESS)).contains(CountryCode.of("PL"));
@@ -29,7 +29,7 @@ class CachingCountryResolverTest {
 
     @Test
     void cachesUnknownCountry() {
-        CountingResolver delegate = new CountingResolver(Optional.empty());
+        CountingResolver delegate = CountingResolver.answering(Optional.empty());
         CachingCountryResolver resolver = new CachingCountryResolver(delegate, Duration.ofHours(1), 100);
 
         assertThat(resolver.resolve(ADDRESS)).isEmpty();
@@ -39,7 +39,7 @@ class CachingCountryResolverTest {
 
     @Test
     void doesNotCacheFailures() {
-        CountingResolver delegate = new CountingResolver(null);
+        CountingResolver delegate = CountingResolver.failing();
         CachingCountryResolver resolver = new CachingCountryResolver(delegate, Duration.ofHours(1), 100);
 
         assertThatThrownBy(() -> resolver.resolve(ADDRESS)).isInstanceOf(GeolocationUnavailableException.class);
@@ -47,23 +47,33 @@ class CachingCountryResolverTest {
         assertThat(delegate.calls.get()).isEqualTo(2);
     }
 
-    /** Returns the given result, or throws when it is {@code null}. */
+    /** Returns a fixed answer or always fails, and counts how often it was asked. */
     private static final class CountingResolver implements CountryResolver {
 
-        private final Optional<CountryCode> result;
+        private final Optional<CountryCode> answer;
+        private final boolean fails;
         private final AtomicInteger calls = new AtomicInteger();
 
-        private CountingResolver(Optional<CountryCode> result) {
-            this.result = result;
+        private CountingResolver(Optional<CountryCode> answer, boolean fails) {
+            this.answer = answer;
+            this.fails = fails;
+        }
+
+        static CountingResolver answering(Optional<CountryCode> answer) {
+            return new CountingResolver(answer, false);
+        }
+
+        static CountingResolver failing() {
+            return new CountingResolver(Optional.empty(), true);
         }
 
         @Override
         public Optional<CountryCode> resolve(InetAddress address) {
             calls.incrementAndGet();
-            if (result.isEmpty()) {
+            if (fails) {
                 throw new GeolocationUnavailableException(new RuntimeException("provider down"));
             }
-            return result;
+            return answer;
         }
     }
 }
