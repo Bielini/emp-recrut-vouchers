@@ -14,18 +14,17 @@ COPY src src
 RUN ./mvnw -B -q package -DskipTests
 
 # --- runtime -------------------------------------------------------------
-FROM eclipse-temurin:25-jre
+# Alpine (musl) keeps the runtime image small; only this stage ends up in the final image.
+FROM eclipse-temurin:25-jre-alpine
 WORKDIR /app
 
-RUN useradd --system --no-create-home --shell /usr/sbin/nologin vouchers
+RUN addgroup -S vouchers && adduser -S -G vouchers -H -s /sbin/nologin vouchers
 COPY --from=build /workspace/target/emp-recrut-vouchers-*.jar app.jar
 USER vouchers
 
 EXPOSE 8080
-# The JRE image has no curl/wget; bash's /dev/tcp is enough for a local health probe.
+# BusyBox wget ships with Alpine, so no extra package is needed for the health probe.
 HEALTHCHECK --interval=10s --timeout=3s --start-period=30s --retries=5 \
-    CMD bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080 \
-        && printf "GET /actuator/health HTTP/1.0\r\nHost: localhost\r\n\r\n" >&3 \
-        && grep -q "\"status\":\"UP\"" <&3'
+    CMD wget -qO- http://127.0.0.1:8080/actuator/health | grep -q '"status":"UP"' || exit 1
 
 ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-jar", "app.jar"]
