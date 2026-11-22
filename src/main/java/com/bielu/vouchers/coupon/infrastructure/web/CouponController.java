@@ -6,8 +6,10 @@ import com.bielu.vouchers.coupon.domain.Coupon;
 import com.bielu.vouchers.coupon.domain.CouponCode;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Size;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -56,5 +58,12 @@ class CouponController {
         InetAddress clientAddress = InetAddress.ofLiteral(httpRequest.getRemoteAddr());
         Instant redeemedAt = service.redeem(new RedeemCouponCommand(code, request.userId(), clientAddress));
         return new RedemptionResponse(CouponCode.of(code).value(), request.userId(), redeemedAt);
+    }
+
+    /** BR-6: called by the order system when the order paid with the coupon is cancelled or returned. */
+    @DeleteMapping("/{code}/redemptions/{userId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    void reverseRedemption(@PathVariable String code, @PathVariable @Size(max = 64) String userId) {
+        service.reverseRedemption(code, userId);
     }
 }

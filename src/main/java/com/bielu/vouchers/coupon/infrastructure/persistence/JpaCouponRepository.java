@@ -63,6 +63,21 @@ class JpaCouponRepository implements CouponRepository {
         });
     }
 
+    @Override
+    public boolean reverseRedemption(long couponId, String userId, Instant reversedAt) {
+        // Same lock order as redeem(): the per-user row first, the hot coupon row last (no deadlocks).
+        return Boolean.TRUE.equals(transaction.execute(status -> {
+            if (jpa.markRedemptionReversed(couponId, userId, reversedAt) == 0) {
+                return false;
+            }
+            if (jpa.decrementUsage(couponId) == 0) {
+                // Unreachable while counter == active redemptions; roll back rather than hide corruption.
+                throw new IllegalStateException("Usage counter of coupon " + couponId + " is already zero");
+            }
+            return true;
+        }));
+    }
+
     private static boolean violates(Throwable e, String constraintName) {
         for (Throwable cause = e; cause != null; cause = cause.getCause()) {
             if (cause instanceof ConstraintViolationException cve

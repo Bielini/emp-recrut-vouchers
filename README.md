@@ -28,8 +28,9 @@ Kupon ma unikalny kod, datę utworzenia, maksymalną i bieżącą liczbę użyć
 | BR-1 | Kod jest unikalny i nie rozróżnia wielkości liter (`WIOSNA` == `wiosna`) | normalizacja w `CouponCode` + `UNIQUE` i `CHECK (code = UPPER(code))` w bazie |
 | BR-2 | Liczba użyć nigdy nie przekracza limitu, także przy wielu instancjach | atomowy warunkowy `UPDATE` + `CHECK (current_uses BETWEEN 0 AND max_uses)` |
 | BR-3 | Kupon może użyć tylko klient z kraju kuponu (na podstawie IP) | `CountryResolver` (port) + adapter ip-api.com, fail-closed |
-| BR-4 | Jeden użytkownik może użyć danego kuponu tylko raz | `UNIQUE (coupon_id, user_id)` + `INSERT … ON CONFLICT DO NOTHING` |
+| BR-4 | Jeden użytkownik może mieć tylko jedno aktywne użycie danego kuponu | częściowy `UNIQUE (coupon_id, user_id) WHERE reversed_at IS NULL` + `INSERT … ON CONFLICT DO NOTHING` |
 | BR-5 | Każda odmowa zwraca czytelny błąd | RFC 9457 `ProblemDetail` z polem `errorCode` |
+| BR-6 | Użycie można wycofać (anulowane/zwrócone zamówienie), co zwalnia pulę dla innych klientów | miękkie usunięcie (`reversed_at`) + warunkowy `UPDATE … current_uses - 1` w jednej transakcji |
 
 ## 2. Uruchomienie
 
@@ -96,6 +97,14 @@ curl -i -X POST localhost:8080/api/v1/coupons/wiosna/redemptions \
 {"couponCode":"WIOSNA","userId":"user-1","redeemedAt":"2026-11-24T10:00:05Z"}
 ```
 
+### Wycofanie użycia (anulowane lub zwrócone zamówienie)
+```bash
+curl -i -X DELETE localhost:8080/api/v1/coupons/wiosna/redemptions/user-1
+```
+`204 No Content`. Użycie wraca do puli, a wiersz zostaje w historii z `reversed_at`. Po wycofaniu ten sam
+użytkownik może użyć kuponu ponownie. Endpoint woła system zamówień, nie klient, więc kraj nie jest
+sprawdzany. Na produkcji powinien być dostępny tylko wewnętrznie (sieć/uwierzytelnianie serwis–serwis).
+
 ### Błędy
 
 Każda odmowa to `application/problem+json` (RFC 9457) ze stabilnym polem `errorCode`, na którym klient może
@@ -113,6 +122,7 @@ oprzeć logikę. Przykład:
 | Kod już istnieje (tworzenie) | 409 | `COUPON_ALREADY_EXISTS` |
 | Użytkownik już użył kuponu | 409 | `COUPON_ALREADY_REDEEMED` |
 | Limit użyć wyczerpany | 409 | `COUPON_EXHAUSTED` |
+| Brak aktywnego użycia do wycofania (także ponowne wycofanie) | 404 | `REDEMPTION_NOT_FOUND` |
 | Usługa geolokalizacji niedostępna | 503 + `Retry-After: 5` | `GEOLOCATION_UNAVAILABLE` |
 | Nieoczekiwany błąd (szczegóły tylko w logu) | 500 | `INTERNAL_ERROR` |
 
@@ -163,6 +173,8 @@ coupon/
 | 10 | Wątki wirtualne + ograniczona pula Hikari | duża pula wątków platformowych | Blokujące I/O (baza, geolokalizacja) jest tanie. Pula połączeń działa jak naturalny backpressure. |
 | 11 | Testcontainers z tym samym obrazem PostgreSQL co w `compose.yaml` | H2 | Testy sprawdzają semantykę blokad i `ON CONFLICT` prawdziwego PostgreSQL. |
 | 12 | `Clock` wstrzykiwany jako bean | `Instant.now()` w kodzie | Czas jest kontrolowany w testach. |
+| 13 | Wycofanie użycia jako miękkie usunięcie (`reversed_at`) + częściowy indeks unikalny | `DELETE` wiersza | Zostaje ślad audytowy (kto, kiedy użył i wycofał). Częściowy indeks pozwala na ponowne użycie po wycofaniu. |
+| 14 | Wycofanie nieistniejącego użycia to 404 `REDEMPTION_NOT_FOUND` | zawsze 204 (idempotentnie) | Wywołujący dostaje jasną informację, że nic się nie zmieniło (np. literówka w `userId`). Stan i tak jest idempotentny: licznik maleje najwyżej raz. |
 
 ## 6. Współbieżność – jak działa i jak to przetestowałem
 
@@ -197,6 +209,22 @@ jak i przy dziesięciu. `CHECK` w schemacie to ostatnia linia obrony.
 - **Kontrola negatywna:** lokalnie podmieniłem implementację na naiwną („odczytaj licznik → sprawdź w Javie
   → zapisz”). Ten sam test przepuścił **183 użycia przy limicie 10**. To dowód, że test faktycznie wykrywa
   wyścig, a nie przechodzi przypadkiem. Naiwnej wersji nie ma w repozytorium.
+
+**Wycofanie użycia (BR-6)** to też jedna krótka transakcja, z tą samą kolejnością blokad co użycie
+(najpierw wiersz użytkownika, potem „gorący” wiersz kuponu), więc nie ma deadlocków:
+
+```sql
+UPDATE coupon_redemption SET reversed_at = ?
+WHERE coupon_id = ? AND user_id = ? AND reversed_at IS NULL;   -- 0 wierszy → REDEMPTION_NOT_FOUND
+
+UPDATE coupon SET current_uses = current_uses - 1
+WHERE id = ? AND current_uses > 0;
+```
+
+Dwa równoległe wycofania tego samego użycia czekają na blokadę wiersza. Drugie ponownie sprawdza
+`reversed_at IS NULL`, nic nie zmienia i licznik maleje dokładnie raz. Testy: 50 równoległych wycofań tego
+samego użycia daje 1 sukces, a 10 wycofań ścigających się ze 100 nowymi użyciami nigdy nie przekracza limitu
+(`current_uses` = liczba aktywnych użyć).
 
 Dodatkowo `CouponApiIT.geolocationIsCalledOutsideTransaction` sprawdza, że w chwili wywołania geolokalizacji
 nie jest otwarta żadna transakcja.

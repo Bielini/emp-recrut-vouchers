@@ -9,6 +9,7 @@ import com.bielu.vouchers.coupon.domain.exception.CountryNotAllowedException;
 import com.bielu.vouchers.coupon.domain.exception.CouponAlreadyRedeemedException;
 import com.bielu.vouchers.coupon.domain.exception.CouponExhaustedException;
 import com.bielu.vouchers.coupon.domain.exception.CouponNotFoundException;
+import com.bielu.vouchers.coupon.domain.exception.RedemptionNotFoundException;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
@@ -64,5 +65,16 @@ public class CouponService {
             case ALREADY_REDEEMED -> throw new CouponAlreadyRedeemedException();
             case EXHAUSTED -> throw new CouponExhaustedException();
         };
+    }
+
+    /**
+     * BR-6: releases a use, e.g. when the order paid with the coupon was cancelled or returned.
+     * No geolocation check: the caller is the order system, not the customer, so its IP means nothing.
+     */
+    public void reverseRedemption(String code, String userId) {
+        Coupon coupon = getByCode(code);
+        if (!repository.reverseRedemption(coupon.id(), userId, Instant.now(clock))) {
+            throw new RedemptionNotFoundException();
+        }
     }
 }

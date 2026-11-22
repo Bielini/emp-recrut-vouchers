@@ -11,6 +11,7 @@ Serwis REST do zarządzania kuponami rabatowymi (zadanie rekrutacyjne Empik).
 ### Funkcjonalności
 1. Utworzenie kuponu (`POST /api/v1/coupons`) – bez uwierzytelniania (zgodnie z treścią zadania).
 2. Rejestracja użycia kuponu przez użytkownika (`POST /api/v1/coupons/{code}/redemptions`).
+3. Wycofanie użycia, np. po anulowaniu lub zwrocie zamówienia (`DELETE /api/v1/coupons/{code}/redemptions/{userId}`).
 
 ### Kupon
 Unikalny kod, data utworzenia, maksymalna liczba użyć, bieżąca liczba użyć, kraj (ISO 3166-1 alpha-2).
@@ -21,7 +22,7 @@ Unikalny kod, data utworzenia, maksymalna liczba użyć, bieżąca liczba użyć
 - **BR-2** Liczba użyć nigdy nie przekracza `maxUses` – również przy wielu instancjach i równoległych żądaniach
   („kto pierwszy ten lepszy”).
 - **BR-3** Kupon może użyć tylko klient z kraju kuponu, ustalonego na podstawie adresu IP.
-- **BR-4** Jeden użytkownik (`userId` w requeście) może użyć danego kuponu tylko raz.
+- **BR-4** Jeden użytkownik (`userId` w requeście) może mieć tylko jedno aktywne (niewycofane) użycie danego kuponu.
 - **BR-5** Każda odmowa zwraca czytelny błąd (RFC 9457 `ProblemDetail` + `errorCode`):
 
 | Sytuacja | HTTP | `errorCode` |
@@ -30,15 +31,23 @@ Unikalny kod, data utworzenia, maksymalna liczba użyć, bieżąca liczba użyć
 | Kraj spoza kuponu / nieustalony | 403 | `COUNTRY_NOT_ALLOWED` |
 | Użytkownik już użył kuponu | 409 | `COUPON_ALREADY_REDEEMED` |
 | Limit użyć wyczerpany | 409 | `COUPON_EXHAUSTED` |
+| Brak aktywnego użycia do wycofania | 404 | `REDEMPTION_NOT_FOUND` |
 | Kod już istnieje (tworzenie) | 409 | `COUPON_ALREADY_EXISTS` |
 | Usługa geolokalizacji niedostępna | 503 | `GEOLOCATION_UNAVAILABLE` |
 | Niepoprawne dane wejściowe | 400 | `VALIDATION_FAILED` |
+
+- **BR-6** Użycie można wycofać (anulowane/zwrócone zamówienie). Wycofanie zwalnia jedno użycie z puli,
+  a wiersz zostaje jako historia (`reversed_at`). Po wycofaniu użytkownik może użyć kuponu ponownie.
+  Wycofanie nie sprawdza kraju (woła je system zamówień, nie klient).
 
 ## Kluczowe decyzje techniczne (nie zmieniać bez uzgodnienia z autorem)
 - BR-2 gwarantuje baza: w jednej transakcji `INSERT … ON CONFLICT (coupon_id, user_id) DO NOTHING`,
   potem `UPDATE coupon SET current_uses = current_uses + 1 WHERE id = ? AND current_uses < max_uses`.
   **Zakazane:** read-check-write w Javie, `synchronized`/locki w JVM, `@Version` dla licznika użyć.
-- Unikalność wymuszają ograniczenia DB (`uq_coupon_code`, `uq_redemption_coupon_user`, `CHECK`), nie „sprawdź, potem zapisz”.
+- Wycofanie (BR-6) w jednej transakcji: `UPDATE coupon_redemption SET reversed_at = ? WHERE … AND reversed_at IS NULL`,
+  potem `UPDATE coupon SET current_uses = current_uses - 1 WHERE id = ? AND current_uses > 0`.
+- Unikalność wymuszają ograniczenia DB (`uq_coupon_code`, częściowy indeks `uq_redemption_coupon_user`
+  `WHERE reversed_at IS NULL`, `CHECK`), nie „sprawdź, potem zapisz”.
 - Geolokalizacja jest wywoływana **poza** transakcją DB, z timeoutami i polityką fail-closed.
 - IP klienta pochodzi z `request.getRemoteAddr()`. Nie czytamy ręcznie `X-Forwarded-For`.
 - Architektura: package-by-feature `coupon` → `domain` / `application` / `infrastructure` (`web`, `persistence`, `geo`).
@@ -56,7 +65,7 @@ JUnit 5 + AssertJ + Mockito, Testcontainers, WireMock. Build: Maven wrapper.
 ## Zasady pracy agenta
 - **TDD:** najpierw test, który nie przechodzi, potem minimalna implementacja.
 - `*Test` to testy szybkie, bez kontenerów. `*IT` to testy integracyjne z Testcontainers.
-- Każda zmiana reguły BR-1…BR-5 wymaga testu. Zmiany w redemption wymagają zielonego `ConcurrentRedemptionIT`.
+- Każda zmiana reguły BR-1…BR-6 wymaga testu. Zmiany w redemption wymagają zielonego `ConcurrentRedemptionIT`.
 - Nie dodawaj zależności, warstw ani wzorców „na zapas” (YAGNI). Proponuj je autorowi, nie wprowadzaj sam.
 - Nie używaj H2 ani mocków bazy w testach persystencji.
 - Kod, nazwy i commity po angielsku, w stylu Conventional Commits.

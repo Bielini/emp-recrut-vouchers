@@ -56,4 +56,18 @@ class InMemoryCouponRepository implements CouponRepository {
                 coupon.currentUses() + 1, coupon.country(), coupon.createdAt()));
         return RedemptionOutcome.REDEEMED;
     }
+
+    @Override
+    public boolean reverseRedemption(long couponId, String userId, Instant reversedAt) {
+        if (!redemptions.remove(couponId + ":" + userId)) {
+            return false;
+        }
+        Coupon coupon = coupons.values().stream()
+                .filter(c -> c.id() == couponId)
+                .findFirst()
+                .orElseThrow();
+        coupons.put(coupon.code(), new Coupon(coupon.id(), coupon.code(), coupon.maxUses(),
+                coupon.currentUses() - 1, coupon.country(), coupon.createdAt()));
+        return true;
+    }
 }

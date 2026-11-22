@@ -80,6 +80,21 @@ class CouponApiIT {
     }
 
     @Test
+    void cancelledOrderReleasesUseForOtherCustomers() {
+        String client = "83.0.0.6";
+        geoReturns(client, "PL");
+        createCoupon("WIOSNA", 1, "PL");
+        assertThat(redeem("WIOSNA", "user-1", client)).hasStatus(HttpStatus.CREATED);
+        assertRefused(redeem("WIOSNA", "user-2", client), HttpStatus.CONFLICT, "COUPON_EXHAUSTED");
+
+        assertThat(reverse("wiosna", "user-1")).hasStatus(HttpStatus.NO_CONTENT);
+        assertRefused(reverse("WIOSNA", "user-1"), HttpStatus.NOT_FOUND, "REDEMPTION_NOT_FOUND");
+
+        assertThat(currentUses("WIOSNA")).isZero();
+        assertThat(redeem("WIOSNA", "user-2", client)).hasStatus(HttpStatus.CREATED);
+    }
+
+    @Test
     void redeemsCouponRegardlessOfCodeCase() {
         String client = "83.0.0.2";
         geoReturns(client, "PL");
@@ -146,6 +161,10 @@ class CouponApiIT {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"userId\":\"%s\"}".formatted(userId))
                 .exchange();
+    }
+
+    private MvcTestResult reverse(String code, String userId) {
+        return mvc.delete().uri("/api/v1/coupons/{code}/redemptions/{userId}", code, userId).exchange();
     }
 
     private static void assertRefused(MvcTestResult result, HttpStatus status, String errorCode) {

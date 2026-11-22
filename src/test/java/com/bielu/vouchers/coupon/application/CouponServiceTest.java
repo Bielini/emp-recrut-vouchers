@@ -8,6 +8,7 @@ import com.bielu.vouchers.coupon.domain.exception.CouponAlreadyRedeemedException
 import com.bielu.vouchers.coupon.domain.exception.CouponExhaustedException;
 import com.bielu.vouchers.coupon.domain.exception.CouponNotFoundException;
 import com.bielu.vouchers.coupon.domain.exception.GeolocationUnavailableException;
+import com.bielu.vouchers.coupon.domain.exception.RedemptionNotFoundException;
 import org.junit.jupiter.api.Test;
 
 import java.net.InetAddress;
@@ -118,5 +119,43 @@ class CouponServiceTest {
 
         assertThatThrownBy(() -> service.redeem(new RedeemCouponCommand("WIOSNA", "user-1", CLIENT)))
                 .isInstanceOf(CouponAlreadyRedeemedException.class);
+    }
+
+    @Test
+    void reversesRedemptionAndFreesUse() {
+        service.create(new CreateCouponCommand("WIOSNA", 1, "PL"));
+        countryResolver.answers("PL");
+        service.redeem(new RedeemCouponCommand("WIOSNA", "user-1", CLIENT));
+
+        service.reverseRedemption("wiosna", "user-1");
+
+        assertThat(service.getByCode("WIOSNA").currentUses()).isZero();
+        assertThat(service.redeem(new RedeemCouponCommand("WIOSNA", "user-2", CLIENT))).isEqualTo(NOW);
+    }
+
+    @Test
+    void reversalDoesNotCallGeolocation() {
+        service.create(new CreateCouponCommand("WIOSNA", 10, "PL"));
+        countryResolver.answers("PL");
+        service.redeem(new RedeemCouponCommand("WIOSNA", "user-1", CLIENT));
+        int callsBefore = countryResolver.calls();
+
+        service.reverseRedemption("WIOSNA", "user-1");
+
+        assertThat(countryResolver.calls()).isEqualTo(callsBefore);
+    }
+
+    @Test
+    void throwsRedemptionNotFoundWhenUserHasNoActiveRedemption() {
+        service.create(new CreateCouponCommand("WIOSNA", 10, "PL"));
+
+        assertThatThrownBy(() -> service.reverseRedemption("WIOSNA", "user-1"))
+                .isInstanceOf(RedemptionNotFoundException.class);
+    }
+
+    @Test
+    void throwsNotFoundWhenReversingUnknownCoupon() {
+        assertThatThrownBy(() -> service.reverseRedemption("MISSING", "user-1"))
+                .isInstanceOf(CouponNotFoundException.class);
     }
 }

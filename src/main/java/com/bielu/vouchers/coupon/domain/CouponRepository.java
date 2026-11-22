@@ -23,4 +23,12 @@ public interface CouponRepository {
      * Safe under concurrent calls from many threads and many application instances.
      */
     RedemptionOutcome redeem(long couponId, String userId, Instant redeemedAt);
+
+    /**
+     * Atomically reverses the user's active redemption and releases one use of the coupon (BR-6).
+     * Safe under concurrent calls: a redemption is reversed and the counter decremented at most once.
+     *
+     * @return {@code false} when the user has no active redemption of the coupon
+     */
+    boolean reverseRedemption(long couponId, String userId, Instant reversedAt);
 }

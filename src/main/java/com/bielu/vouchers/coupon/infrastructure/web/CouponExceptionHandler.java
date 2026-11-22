@@ -9,6 +9,7 @@ import com.bielu.vouchers.coupon.domain.exception.CouponNotFoundException;
 import com.bielu.vouchers.coupon.domain.exception.GeolocationUnavailableException;
 import com.bielu.vouchers.coupon.domain.exception.InvalidCountryCodeException;
 import com.bielu.vouchers.coupon.domain.exception.InvalidCouponCodeException;
+import com.bielu.vouchers.coupon.domain.exception.RedemptionNotFoundException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
@@ -46,6 +47,8 @@ class CouponExceptionHandler extends ResponseEntityExceptionHandler {
                     respond(problem(HttpStatus.BAD_REQUEST, VALIDATION_FAILED, e.getMessage()));
             case CouponNotFoundException _ ->
                     respond(problem(HttpStatus.NOT_FOUND, "COUPON_NOT_FOUND", e.getMessage()));
+            case RedemptionNotFoundException _ ->
+                    respond(problem(HttpStatus.NOT_FOUND, "REDEMPTION_NOT_FOUND", e.getMessage()));
             case CouponAlreadyExistsException _ ->
                     respond(problem(HttpStatus.CONFLICT, "COUPON_ALREADY_EXISTS", e.getMessage()));
             case CountryNotAllowedException _ ->

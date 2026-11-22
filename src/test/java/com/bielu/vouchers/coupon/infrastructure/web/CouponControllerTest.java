@@ -14,6 +14,7 @@ import com.bielu.vouchers.coupon.domain.exception.CouponExhaustedException;
 import com.bielu.vouchers.coupon.domain.exception.CouponNotFoundException;
 import com.bielu.vouchers.coupon.domain.exception.GeolocationUnavailableException;
 import com.bielu.vouchers.coupon.domain.exception.InvalidCountryCodeException;
+import com.bielu.vouchers.coupon.domain.exception.RedemptionNotFoundException;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -32,6 +33,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
+import static org.mockito.BDDMockito.willThrow;
 
 @WebMvcTest(CouponController.class)
 class CouponControllerTest {
@@ -226,6 +228,47 @@ class CouponControllerTest {
                 HttpStatus.SERVICE_UNAVAILABLE, "GEOLOCATION_UNAVAILABLE");
 
         assertThat(result.getResponse().getHeader(HttpHeaders.RETRY_AFTER)).isEqualTo("5");
+    }
+
+    @Test
+    void reverseReturns204() {
+        MvcTestResult result = reverse("wiosna", "user-1");
+
+        assertThat(result).hasStatus(HttpStatus.NO_CONTENT);
+        then(service).should().reverseRedemption("wiosna", "user-1");
+    }
+
+    @Test
+    void reverseReturns404WhenNoActiveRedemption() {
+        willThrow(new RedemptionNotFoundException()).given(service).reverseRedemption("WIOSNA", "user-1");
+
+        MvcTestResult result = reverse("WIOSNA", "user-1");
+
+        assertThat(result).hasStatus(HttpStatus.NOT_FOUND).hasContentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON);
+        assertThat(result).bodyJson().extractingPath("$.errorCode").isEqualTo("REDEMPTION_NOT_FOUND");
+    }
+
+    @Test
+    void reverseReturns404ForUnknownCoupon() {
+        willThrow(new CouponNotFoundException()).given(service).reverseRedemption("MISSING", "user-1");
+
+        MvcTestResult result = reverse("MISSING", "user-1");
+
+        assertThat(result).hasStatus(HttpStatus.NOT_FOUND);
+        assertThat(result).bodyJson().extractingPath("$.errorCode").isEqualTo("COUPON_NOT_FOUND");
+    }
+
+    @Test
+    void reverseReturns400ForTooLongUserId() {
+        MvcTestResult result = reverse("WIOSNA", "u".repeat(65));
+
+        assertThat(result).hasStatus(HttpStatus.BAD_REQUEST).hasContentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON);
+        assertThat(result).bodyJson().extractingPath("$.errorCode").isEqualTo("VALIDATION_FAILED");
+        then(service).shouldHaveNoInteractions();
+    }
+
+    private MvcTestResult reverse(String code, String userId) {
+        return mvc.delete().uri("/api/v1/coupons/{code}/redemptions/{userId}", code, userId).exchange();
     }
 
     private MvcTestResult assertRedeemRefused(CouponDomainException exception, HttpStatus status, String errorCode) {
