@@ -20,7 +20,15 @@ class GeoConfiguration {
                             properties.connectTimeout(), properties.readTimeout())),
                     properties.cacheTtl(),
                     properties.cacheMaxSize());
-            case FIXED -> new FixedCountryResolver(CountryCode.of(properties.fixedCountry()));
+            case FIXED -> new FixedCountryResolver(fixedCountry(properties));
         };
+    }
+
+    private static CountryCode fixedCountry(GeoProperties properties) {
+        if (properties.fixedCountry() == null || properties.fixedCountry().isBlank()) {
+            throw new IllegalStateException(
+                    "geo.fixed-country (GEO_FIXED_COUNTRY) must be set when geo.provider=FIXED");
+        }
+        return CountryCode.of(properties.fixedCountry());
     }
 }

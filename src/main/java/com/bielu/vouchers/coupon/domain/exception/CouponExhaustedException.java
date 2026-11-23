@@ -1,6 +1,6 @@
 package com.bielu.vouchers.coupon.domain.exception;
 
-public class CouponExhaustedException extends CouponDomainException {
+public final class CouponExhaustedException extends CouponDomainException {
 
     public CouponExhaustedException() {
         super("Coupon usage limit has been reached");

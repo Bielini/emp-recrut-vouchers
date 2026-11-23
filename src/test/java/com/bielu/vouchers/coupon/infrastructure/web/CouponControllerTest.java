@@ -6,6 +6,7 @@ import com.bielu.vouchers.coupon.application.RedeemCouponCommand;
 import com.bielu.vouchers.coupon.domain.CountryCode;
 import com.bielu.vouchers.coupon.domain.Coupon;
 import com.bielu.vouchers.coupon.domain.CouponCode;
+import com.bielu.vouchers.coupon.domain.Redemption;
 import com.bielu.vouchers.coupon.domain.exception.CountryNotAllowedException;
 import com.bielu.vouchers.coupon.domain.exception.CouponAlreadyExistsException;
 import com.bielu.vouchers.coupon.domain.exception.CouponAlreadyRedeemedException;
@@ -40,6 +41,8 @@ class CouponControllerTest {
 
     private static final Coupon WIOSNA = new Coupon(
             1L, CouponCode.of("WIOSNA"), 10, 0, CountryCode.of("PL"), Instant.parse("2026-11-28T10:00:00Z"));
+    private static final Redemption REDEMPTION =
+            new Redemption(CouponCode.of("WIOSNA"), "user-1", Instant.parse("2026-11-28T10:00:00Z"));
 
     @Autowired
     private MockMvcTester mvc;
@@ -141,7 +144,7 @@ class CouponControllerTest {
 
     @Test
     void redeemReturns201() {
-        given(service.redeem(any())).willReturn(Instant.parse("2026-11-28T10:00:00Z"));
+        given(service.redeem(any())).willReturn(REDEMPTION);
 
         MvcTestResult result = redeem("wiosna", "83.0.0.1", """
                 {"userId": "user-1"}""");
@@ -154,7 +157,7 @@ class CouponControllerTest {
 
     @Test
     void passesRemoteAddressToService() {
-        given(service.redeem(any())).willReturn(Instant.parse("2026-11-28T10:00:00Z"));
+        given(service.redeem(any())).willReturn(REDEMPTION);
 
         redeem("wiosna", "83.0.0.1", """
                 {"userId": "user-1"}""");
@@ -164,7 +167,7 @@ class CouponControllerTest {
 
     @Test
     void ignoresForwardedHeaderWithoutTrustedProxy() {
-        given(service.redeem(any())).willReturn(Instant.parse("2026-11-28T10:00:00Z"));
+        given(service.redeem(any())).willReturn(REDEMPTION);
 
         // A client could put any "Polish" address here; without a trusted proxy the header must be ignored.
         mvc.post().uri("/api/v1/coupons/WIOSNA/redemptions")

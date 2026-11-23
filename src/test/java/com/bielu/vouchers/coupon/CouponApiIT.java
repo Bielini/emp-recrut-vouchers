@@ -48,6 +48,9 @@ class CouponApiIT {
     @DynamicPropertySource
     static void geoProperties(DynamicPropertyRegistry registry) {
         registry.add("geo.base-url", geoApi::baseUrl);
+        // The 1s production timeout is too tight for a cold JVM on a busy CI runner;
+        // timeout handling itself is covered by IpApiCountryResolverTest.
+        registry.add("geo.read-timeout", () -> "5s");
     }
 
     @Autowired

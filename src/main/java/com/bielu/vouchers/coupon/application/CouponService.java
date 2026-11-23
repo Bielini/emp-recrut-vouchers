@@ -5,6 +5,7 @@ import com.bielu.vouchers.coupon.domain.CountryResolver;
 import com.bielu.vouchers.coupon.domain.Coupon;
 import com.bielu.vouchers.coupon.domain.CouponCode;
 import com.bielu.vouchers.coupon.domain.CouponRepository;
+import com.bielu.vouchers.coupon.domain.Redemption;
 import com.bielu.vouchers.coupon.domain.exception.CountryNotAllowedException;
 import com.bielu.vouchers.coupon.domain.exception.CouponAlreadyRedeemedException;
 import com.bielu.vouchers.coupon.domain.exception.CouponExhaustedException;
@@ -50,7 +51,7 @@ public class CouponService {
      * Deliberately not {@code @Transactional}: the geolocation call is network I/O and must not hold
      * a pooled DB connection or row locks. Only {@link CouponRepository#redeem} runs in a (short) transaction.
      */
-    public Instant redeem(RedeemCouponCommand command) {
+    public Redemption redeem(RedeemCouponCommand command) {
         Coupon coupon = getByCode(command.code());
 
         // BR-3, fail-closed: an unknown country is a refusal, an unavailable provider propagates as 503.
@@ -59,9 +60,10 @@ public class CouponService {
             throw new CountryNotAllowedException();
         }
 
+        String userId = normalizeUserId(command.userId());
         Instant redeemedAt = Instant.now(clock);
-        return switch (repository.redeem(coupon.id(), command.userId(), redeemedAt)) {
-            case REDEEMED -> redeemedAt;
+        return switch (repository.redeem(coupon.id(), userId, redeemedAt)) {
+            case REDEEMED -> new Redemption(coupon.code(), userId, redeemedAt);
             case ALREADY_REDEEMED -> throw new CouponAlreadyRedeemedException();
             case EXHAUSTED -> throw new CouponExhaustedException();
         };
@@ -73,8 +75,13 @@ public class CouponService {
      */
     public void reverseRedemption(String code, String userId) {
         Coupon coupon = getByCode(code);
-        if (!repository.reverseRedemption(coupon.id(), userId, Instant.now(clock))) {
+        if (!repository.reverseRedemption(coupon.id(), normalizeUserId(userId), Instant.now(clock))) {
             throw new RedemptionNotFoundException();
         }
+    }
+
+    /** BR-4: " user-1" and "user-1" are the same user, so one of them cannot bypass the one-active-use rule. */
+    private static String normalizeUserId(String userId) {
+        return userId.strip();
     }
 }

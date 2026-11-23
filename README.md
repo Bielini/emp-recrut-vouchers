@@ -142,7 +142,10 @@ Walidacja: kod `^[A-Z0-9_-]{3,32}$` po normalizacji (`strip()` + `toUpperCase(Lo
 - **Jeden użytkownik = jedno użycie kuponu.** Wymaganie było opcjonalne, ale zrealizowałem je.
 - **Ponowna próba użytkownika, który już użył wyczerpanego kuponu**, zwraca `COUPON_ALREADY_REDEEMED`,
   a nie `COUPON_EXHAUSTED`. To dla niego bardziej informatywne.
-- **Użycia nie da się cofnąć** (np. przy anulowaniu zamówienia). To osobny przypadek użycia, opisany w [Co dalej](#9-co-dalej).
+- **Wycofanie użycia woła system zamówień**, nie klient, więc kraj nie jest sprawdzany. Endpoint powinien być
+  dostępny tylko wewnętrznie. Produkcyjnie powiązałbym użycie z `orderId`, żeby klient nie mógł sam
+  wycofywać i ponawiać użycia (ani wycofać cudzego).
+- **`userId` jest przycinany** (`strip()`), więc `" user-1"` i `"user-1"` to ten sam użytkownik (BR-4).
 
 ## 5. Decyzje projektowe
 
@@ -152,7 +155,7 @@ Walidacja: kod `^[A-Z0-9_-]{3,32}$` po normalizacji (`strip()` + `toUpperCase(Lo
 coupon/
   domain/          value objecty (CouponCode, CountryCode), model Coupon, porty (CouponRepository,
                    CountryResolver), wyjątki domenowe – bez zależności od Springa i JPA
-  application/     CouponService – przypadki użycia: create, get, redeem
+  application/     CouponService – przypadki użycia: create, get, redeem, reverseRedemption
   infrastructure/
     persistence/   JPA + natywne zapytania atomowe, schemat w Flyway
     geo/           adapter ip-api.com, cache Caffeine, konfiguracja
@@ -183,7 +186,7 @@ Użycie kuponu to jedna krótka transakcja z dwoma zapytaniami (`CouponJpaReposi
 ```sql
 -- 1. BR-4: wiersz użycia; konflikt = ten użytkownik już użył kuponu
 INSERT INTO coupon_redemption (coupon_id, user_id, redeemed_at) VALUES (?, ?, ?)
-ON CONFLICT (coupon_id, user_id) DO NOTHING;
+ON CONFLICT (coupon_id, user_id) WHERE reversed_at IS NULL DO NOTHING;
 
 -- 2. BR-2: sprawdzenie i inkrementacja w jednym zdaniu
 UPDATE coupon SET current_uses = current_uses + 1
@@ -214,7 +217,7 @@ jak i przy dziesięciu. `CHECK` w schemacie to ostatnia linia obrony.
 (najpierw wiersz użytkownika, potem „gorący” wiersz kuponu), więc nie ma deadlocków:
 
 ```sql
-UPDATE coupon_redemption SET reversed_at = ?
+UPDATE coupon_redemption SET reversed_at = GREATEST(?, redeemed_at)  -- odporne na rozjazd zegarów instancji
 WHERE coupon_id = ? AND user_id = ? AND reversed_at IS NULL;   -- 0 wierszy → REDEMPTION_NOT_FOUND
 
 UPDATE coupon SET current_uses = current_uses - 1
@@ -269,7 +272,7 @@ więcej instancji za load balancerem. Wąskie gardła i dalsze kroki, od najpros
 ## 9. Co dalej
 
 - Data ważności kuponu (`valid_from` / `valid_to`) i dezaktywacja kuponu.
-- Zwrot użycia przy anulowaniu zamówienia: usunięcie wiersza użycia i dekrementacja w jednej transakcji.
+- Powiązanie użycia z `orderId` i uwierzytelnianie serwis–serwis dla wycofania.
 - Klucz idempotencji dla `POST /redemptions` (bezpieczne ponowienia po timeoucie po stronie klienta).
 - Metryki Micrometer (liczba użyć, odmowy według `errorCode`, czasy geolokalizacji) i alerty.
 - Circuit breaker na geolokalizacji, offline'owa baza GeoIP.

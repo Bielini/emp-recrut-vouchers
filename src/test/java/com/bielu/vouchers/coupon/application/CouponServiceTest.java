@@ -3,6 +3,7 @@ package com.bielu.vouchers.coupon.application;
 import com.bielu.vouchers.coupon.domain.CountryCode;
 import com.bielu.vouchers.coupon.domain.Coupon;
 import com.bielu.vouchers.coupon.domain.CouponCode;
+import com.bielu.vouchers.coupon.domain.Redemption;
 import com.bielu.vouchers.coupon.domain.exception.CountryNotAllowedException;
 import com.bielu.vouchers.coupon.domain.exception.CouponAlreadyRedeemedException;
 import com.bielu.vouchers.coupon.domain.exception.CouponExhaustedException;
@@ -59,9 +60,9 @@ class CouponServiceTest {
         service.create(new CreateCouponCommand("WIOSNA", 10, "PL"));
         countryResolver.answers("PL");
 
-        Instant redeemedAt = service.redeem(new RedeemCouponCommand("wiosna", "user-1", CLIENT));
+        Redemption redemption = service.redeem(new RedeemCouponCommand("wiosna", " user-1 ", CLIENT));
 
-        assertThat(redeemedAt).isEqualTo(NOW);
+        assertThat(redemption).isEqualTo(new Redemption(CouponCode.of("WIOSNA"), "user-1", NOW));
         assertThat(service.getByCode("WIOSNA").currentUses()).isEqualTo(1);
     }
 
@@ -130,7 +131,19 @@ class CouponServiceTest {
         service.reverseRedemption("wiosna", "user-1");
 
         assertThat(service.getByCode("WIOSNA").currentUses()).isZero();
-        assertThat(service.redeem(new RedeemCouponCommand("WIOSNA", "user-2", CLIENT))).isEqualTo(NOW);
+        assertThat(service.redeem(new RedeemCouponCommand("WIOSNA", "user-2", CLIENT)).redeemedAt()).isEqualTo(NOW);
+    }
+
+    @Test
+    void treatsUserIdsDifferingOnlyInSurroundingWhitespaceAsSameUser() {
+        service.create(new CreateCouponCommand("WIOSNA", 10, "PL"));
+        countryResolver.answers("PL");
+        service.redeem(new RedeemCouponCommand("WIOSNA", "user-1", CLIENT));
+
+        assertThatThrownBy(() -> service.redeem(new RedeemCouponCommand("WIOSNA", " user-1 ", CLIENT)))
+                .isInstanceOf(CouponAlreadyRedeemedException.class);
+        service.reverseRedemption("WIOSNA", " user-1\t");
+        assertThat(service.getByCode("WIOSNA").currentUses()).isZero();
     }
 
     @Test

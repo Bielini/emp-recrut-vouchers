@@ -63,7 +63,6 @@ class CouponExceptionHandler extends ResponseEntityExceptionHandler {
                         .header(HttpHeaders.RETRY_AFTER, RETRY_AFTER_SECONDS)
                         .body(problem(HttpStatus.SERVICE_UNAVAILABLE, "GEOLOCATION_UNAVAILABLE", e.getMessage()));
             }
-            default -> respond(handleUnexpected(e));
         };
     }
 

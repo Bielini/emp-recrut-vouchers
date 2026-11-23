@@ -3,7 +3,6 @@ package com.bielu.vouchers.coupon.infrastructure.web;
 import com.bielu.vouchers.coupon.application.CouponService;
 import com.bielu.vouchers.coupon.application.RedeemCouponCommand;
 import com.bielu.vouchers.coupon.domain.Coupon;
-import com.bielu.vouchers.coupon.domain.CouponCode;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Size;
@@ -21,7 +20,6 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import java.net.InetAddress;
 import java.net.URI;
-import java.time.Instant;
 
 @RestController
 @RequestMapping("/api/v1/coupons")
@@ -56,8 +54,7 @@ class CouponController {
         // BR-3: the address of the TCP peer, never X-Forwarded-For read by hand (trivial to spoof).
         // Behind a load balancer, server.forward-headers-strategy=native lets Tomcat trust only internal proxies.
         InetAddress clientAddress = InetAddress.ofLiteral(httpRequest.getRemoteAddr());
-        Instant redeemedAt = service.redeem(new RedeemCouponCommand(code, request.userId(), clientAddress));
-        return new RedemptionResponse(CouponCode.of(code).value(), request.userId(), redeemedAt);
+        return RedemptionResponse.from(service.redeem(new RedeemCouponCommand(code, request.userId(), clientAddress)));
     }
 
     /** BR-6: called by the order system when the order paid with the coupon is cancelled or returned. */

@@ -145,6 +145,19 @@ class JpaCouponRepositoryIT {
     }
 
     @Test
+    void reversalSucceedsWhenReversingInstanceClockIsBehind() {
+        // Redeemed on one instance, reversed on another whose clock lags: must not violate the CHECK.
+        Coupon coupon = repository.create(CouponCode.of("WIOSNA"), 10, PL, CREATED_AT);
+        Instant redeemedAt = REVERSED_AT;
+        repository.redeem(coupon.id(), "user-1", redeemedAt);
+
+        assertThat(repository.reverseRedemption(coupon.id(), "user-1", redeemedAt.minusSeconds(1))).isTrue();
+        assertThat(currentUses(coupon)).isZero();
+        assertThat(jdbc.sql("SELECT reversed_at FROM coupon_redemption WHERE coupon_id = ?").param(coupon.id())
+                .query(Instant.class).single()).isEqualTo(redeemedAt);
+    }
+
+    @Test
     void returnsFalseWhenUserHasNotRedeemed() {
         Coupon coupon = repository.create(CouponCode.of("WIOSNA"), 10, PL, CREATED_AT);
         repository.redeem(coupon.id(), "user-1", CREATED_AT);

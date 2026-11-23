@@ -40,12 +40,14 @@ interface CouponJpaRepository extends JpaRepository<CouponEntity, Long> {
     /**
      * BR-6: marks the active redemption as reversed. Concurrent reversals of the same redemption
      * serialize on its row lock; the loser re-evaluates {@code reversed_at IS NULL} and updates nothing.
+     * GREATEST: redemption and reversal may be timestamped by different instances whose clocks drift,
+     * which must not violate {@code reversed_at >= redeemed_at}.
      *
      * @return 1 when reversed, 0 when there is no active redemption
      */
     @Modifying
     @Query(value = """
-            UPDATE coupon_redemption SET reversed_at = :reversedAt
+            UPDATE coupon_redemption SET reversed_at = GREATEST(:reversedAt, redeemed_at)
             WHERE coupon_id = :couponId AND user_id = :userId AND reversed_at IS NULL""", nativeQuery = true)
     int markRedemptionReversed(long couponId, String userId, Instant reversedAt);
 
